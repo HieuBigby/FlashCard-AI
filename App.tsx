@@ -1,17 +1,18 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { AppView, Flashcard, Deck } from './types';
 import { parseRawTextToFlashcards } from './services/geminiService';
 import CardDisplay from './components/CardDisplay';
 
 const App: React.FC = () => {
-  const [view, setView] = useState<AppView>(AppView.CREATE);
+  const [view, setView] = useState<AppView>(AppView.DASHBOARD);
   const [rawText, setRawText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [currentDeck, setCurrentDeck] = useState<Deck | null>(null);
+  const [currentDeckId, setCurrentDeckId] = useState<string | null>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [savedDecks, setSavedDecks] = useState<Deck[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [reviewFilter, setReviewFilter] = useState<'all' | 'undone'>('all');
 
   // States for renaming feature
   const [renamingDeckId, setRenamingDeckId] = useState<string | null>(null);
@@ -37,6 +38,18 @@ const App: React.FC = () => {
     localStorage.setItem('smartflash_decks', JSON.stringify(savedDecks));
   }, [savedDecks]);
 
+  const currentDeck = useMemo(() => 
+    savedDecks.find(d => d.id === currentDeckId) || null
+  , [savedDecks, currentDeckId]);
+
+  const filteredCards = useMemo(() => {
+    if (!currentDeck) return [];
+    if (reviewFilter === 'undone') {
+      return currentDeck.cards.filter(c => !c.isDone);
+    }
+    return currentDeck.cards;
+  }, [currentDeck, reviewFilter]);
+
   const shuffleArray = <T,>(array: T[]): T[] => {
     const newArray = [...array];
     for (let i = newArray.length - 1; i > 0; i--) {
@@ -47,13 +60,28 @@ const App: React.FC = () => {
   };
 
   const handleShuffle = () => {
-    if (!currentDeck) return;
-    const shuffledCards = shuffleArray(currentDeck.cards);
-    setCurrentDeck({
-      ...currentDeck,
-      cards: shuffledCards
-    });
+    if (!currentDeckId) return;
+    setSavedDecks(prev => prev.map(deck => {
+      if (deck.id === currentDeckId) {
+        return { ...deck, cards: shuffleArray(deck.cards) };
+      }
+      return deck;
+    }));
     setCurrentIndex(0);
+  };
+
+  const toggleCardDone = (cardId: string) => {
+    setSavedDecks(prev => prev.map(deck => {
+      if (deck.id === currentDeckId) {
+        return {
+          ...deck,
+          cards: deck.cards.map(card => 
+            card.id === cardId ? { ...card, isDone: !card.isDone } : card
+          )
+        };
+      }
+      return deck;
+    }));
   };
 
   const handleGenerate = async () => {
@@ -70,13 +98,14 @@ const App: React.FC = () => {
       const newDeck: Deck = {
         id: Date.now().toString(),
         title: rawText.split('\n')[0].substring(0, 30) || 'Untitled Deck',
-        cards,
+        cards: cards.map(c => ({ ...c, isDone: false })),
         createdAt: Date.now()
       };
 
       setSavedDecks(prev => [newDeck, ...prev]);
-      setCurrentDeck(newDeck);
+      setCurrentDeckId(newDeck.id);
       setCurrentIndex(0);
+      setReviewFilter('all');
       setView(AppView.REVIEW);
     } catch (err: any) {
       setError(err.message || "Something went wrong while generating cards.");
@@ -87,10 +116,9 @@ const App: React.FC = () => {
 
   const confirmDeleteDeck = () => {
     if (!deletingDeckId) return;
-    
     setSavedDecks(prev => prev.filter(d => d.id !== deletingDeckId));
-    if (currentDeck?.id === deletingDeckId) {
-      setCurrentDeck(null);
+    if (currentDeckId === deletingDeckId) {
+      setCurrentDeckId(null);
       setView(AppView.DASHBOARD);
     }
     setDeletingDeckId(null);
@@ -103,26 +131,17 @@ const App: React.FC = () => {
 
   const saveRename = () => {
     if (!renamingDeckId || !newTitleInput.trim()) return;
-    
     setSavedDecks(prev => prev.map(deck => 
       deck.id === renamingDeckId ? { ...deck, title: newTitleInput.trim() } : deck
     ));
-    
-    if (currentDeck?.id === renamingDeckId) {
-      setCurrentDeck(prev => prev ? { ...prev, title: newTitleInput.trim() } : null);
-    }
-    
     setRenamingDeckId(null);
     setNewTitleInput('');
   };
 
-  const startReview = (deck: Deck, shuffle: boolean = false) => {
-    const deckToReview = { ...deck };
-    if (shuffle) {
-      deckToReview.cards = shuffleArray(deck.cards);
-    }
-    setCurrentDeck(deckToReview);
+  const startReview = (deck: Deck, filter: 'all' | 'undone' = 'all') => {
+    setCurrentDeckId(deck.id);
     setCurrentIndex(0);
+    setReviewFilter(filter);
     setView(AppView.REVIEW);
   };
 
@@ -211,84 +230,74 @@ const App: React.FC = () => {
                 </div>
               </div>
             </div>
-
-            <div className="mt-16 grid grid-cols-1 md:grid-cols-3 gap-8">
-              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-                <div className="w-10 h-10 bg-blue-50 text-blue-500 rounded-full flex items-center justify-center mb-4">
-                  <i className="fa-solid fa-language"></i>
-                </div>
-                <h3 className="font-bold text-slate-800 mb-2">Multilingual</h3>
-                <p className="text-sm text-slate-500">Perfect for Japanese, Vietnamese, English, or any language combinations.</p>
-              </div>
-              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-                <div className="w-10 h-10 bg-green-50 text-green-500 rounded-full flex items-center justify-center mb-4">
-                  <i className="fa-solid fa-microchip"></i>
-                </div>
-                <h3 className="font-bold text-slate-800 mb-2">AI Extraction</h3>
-                <p className="text-sm text-slate-500">Handles messy formatting, bullet points, and even long descriptive notes.</p>
-              </div>
-              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-                <div className="w-10 h-10 bg-purple-50 text-purple-500 rounded-full flex items-center justify-center mb-4">
-                  <i className="fa-solid fa-mobile-screen"></i>
-                </div>
-                <h3 className="font-bold text-slate-800 mb-2">Responsive</h3>
-                <p className="text-sm text-slate-500">Study on your phone, tablet or desktop with seamless transitions.</p>
-              </div>
-            </div>
           </div>
         )}
 
         {/* REVIEW VIEW */}
         {view === AppView.REVIEW && currentDeck && (
           <div className="animate-in fade-in zoom-in-95 duration-500">
-            <div className="flex items-center justify-between mb-8">
-              <button 
-                onClick={() => setView(AppView.DASHBOARD)}
-                className="flex items-center gap-2 text-slate-500 hover:text-slate-800 font-medium transition-colors"
-              >
-                <i className="fa-solid fa-arrow-left"></i>
-                Back to Decks
-              </button>
-              <h1 className="text-2xl font-bold text-slate-800 truncate max-w-md">{currentDeck.title}</h1>
-              <div className="flex gap-4">
+            <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
+              <div className="flex items-center gap-4">
+                <button 
+                  onClick={() => setView(AppView.DASHBOARD)}
+                  className="flex items-center gap-2 text-slate-500 hover:text-slate-800 font-medium transition-colors"
+                >
+                  <i className="fa-solid fa-arrow-left"></i>
+                  Back
+                </button>
+                <div className="h-6 w-px bg-slate-200 hidden md:block"></div>
+                <h1 className="text-2xl font-bold text-slate-800 truncate max-w-[200px] md:max-w-md">{currentDeck.title}</h1>
+              </div>
+
+              <div className="flex flex-wrap gap-3 items-center">
+                <div className="bg-slate-100 p-1 rounded-xl flex">
+                  <button 
+                    onClick={() => { setReviewFilter('all'); setCurrentIndex(0); }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${reviewFilter === 'all' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}
+                  >
+                    All Cards
+                  </button>
+                  <button 
+                    onClick={() => { setReviewFilter('undone'); setCurrentIndex(0); }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${reviewFilter === 'undone' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}
+                  >
+                    In Progress
+                  </button>
+                </div>
+                
                 <button 
                   onClick={handleShuffle}
                   className="flex items-center gap-2 px-3 py-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
                   title="Shuffle Cards"
                 >
                   <i className="fa-solid fa-shuffle"></i>
-                  <span className="text-sm font-semibold">Shuffle</span>
-                </button>
-                <button 
-                  onClick={() => {
-                    setCurrentIndex(0);
-                  }}
-                  className="flex items-center gap-2 px-3 py-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
-                  title="Restart"
-                >
-                  <i className="fa-solid fa-rotate-left"></i>
-                  <span className="text-sm font-semibold">Restart</span>
+                  <span className="text-xs font-semibold">Shuffle</span>
                 </button>
               </div>
             </div>
 
-            <CardDisplay 
-              key={currentDeck.cards[currentIndex].id}
-              card={currentDeck.cards[currentIndex]}
-              currentIndex={currentIndex}
-              totalCards={currentDeck.cards.length}
-              onNext={() => setCurrentIndex(prev => Math.min(currentDeck.cards.length - 1, prev + 1))}
-              onPrev={() => setCurrentIndex(prev => Math.max(0, prev - 1))}
-            />
-
-            {currentIndex === currentDeck.cards.length - 1 && (
-              <div className="mt-12 text-center animate-bounce">
-                <p className="text-indigo-600 font-bold text-lg">🎉 You've reached the end!</p>
+            {filteredCards.length > 0 ? (
+              <CardDisplay 
+                key={filteredCards[currentIndex].id}
+                card={filteredCards[currentIndex]}
+                currentIndex={currentIndex}
+                totalCards={filteredCards.length}
+                onNext={() => setCurrentIndex(prev => Math.min(filteredCards.length - 1, prev + 1))}
+                onPrev={() => setCurrentIndex(prev => Math.max(0, prev - 1))}
+                onToggleDone={() => toggleCardDone(filteredCards[currentIndex].id)}
+              />
+            ) : (
+              <div className="text-center py-24 bg-white rounded-3xl border border-slate-200 shadow-sm">
+                <div className="w-20 h-20 bg-green-50 text-green-500 rounded-full flex items-center justify-center mx-auto mb-6">
+                  <i className="fa-solid fa-check-double text-3xl"></i>
+                </div>
+                <h2 className="text-2xl font-bold text-slate-800 mb-2">All cards mastered!</h2>
+                <p className="text-slate-500 mb-8 max-w-sm mx-auto">Great job! You've finished all the cards in this filter.</p>
                 <button 
-                  onClick={handleShuffle}
-                  className="mt-4 px-6 py-2 bg-indigo-50 text-indigo-600 rounded-full font-bold hover:bg-indigo-100 transition-colors"
+                  onClick={() => { setReviewFilter('all'); setCurrentIndex(0); }}
+                  className="px-8 py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-all shadow-lg"
                 >
-                  Shuffle & Learn Again
+                  Review All Cards
                 </button>
               </div>
             )}
@@ -298,11 +307,15 @@ const App: React.FC = () => {
         {/* DASHBOARD VIEW */}
         {view === AppView.DASHBOARD && (
           <div className="animate-in fade-in duration-500">
-            <div className="flex items-center justify-between mb-8">
-              <h1 className="text-3xl font-bold text-slate-900">Your Decks</h1>
-              <span className="bg-indigo-50 text-indigo-600 px-3 py-1 rounded-full text-sm font-bold">
-                {savedDecks.length} TOTAL
-              </span>
+            <div className="flex items-center justify-between mb-10">
+              <h1 className="text-3xl font-bold text-slate-900">My Study Sets</h1>
+              <button 
+                onClick={() => setView(AppView.CREATE)}
+                className="hidden sm:flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-all shadow-md shadow-indigo-100"
+              >
+                <i className="fa-solid fa-plus"></i>
+                New Deck
+              </button>
             </div>
 
             {savedDecks.length === 0 ? (
@@ -321,59 +334,68 @@ const App: React.FC = () => {
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {savedDecks.map(deck => (
-                  <div 
-                    key={deck.id}
-                    className="group bg-white rounded-2xl border border-slate-200 overflow-hidden hover:shadow-xl transition-all hover:border-indigo-100 flex flex-col"
-                  >
-                    <div className="p-6 flex-1">
-                      <div className="flex justify-between items-start mb-4">
-                        <span className="text-xs font-bold text-indigo-500 uppercase tracking-widest px-2 py-1 bg-indigo-50 rounded-md">
-                          {deck.cards.length} CARDS
-                        </span>
-                        <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button 
-                            onClick={(e) => { e.stopPropagation(); startRename(deck); }}
-                            className="text-slate-300 hover:text-indigo-600 transition-all p-1"
-                            title="Rename Deck"
-                          >
-                            <i className="fa-solid fa-pen"></i>
-                          </button>
-                          <button 
-                            onClick={(e) => { e.stopPropagation(); setDeletingDeckId(deck.id); }}
-                            className="text-slate-300 hover:text-red-500 transition-all p-1"
-                            title="Delete Deck"
-                          >
-                            <i className="fa-solid fa-trash-can"></i>
-                          </button>
+                {savedDecks.map(deck => {
+                  const masteredCount = deck.cards.filter(c => c.isDone).length;
+                  const totalCount = deck.cards.length;
+                  const progress = totalCount > 0 ? (masteredCount / totalCount) * 100 : 0;
+                  
+                  return (
+                    <div 
+                      key={deck.id}
+                      className="group bg-white rounded-2xl border border-slate-200 overflow-hidden hover:shadow-xl transition-all hover:border-indigo-100 flex flex-col"
+                    >
+                      <div className="p-6 flex-1">
+                        <div className="flex justify-between items-start mb-4">
+                          <span className={`text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded-md ${progress === 100 ? 'bg-green-50 text-green-600' : 'bg-indigo-50 text-indigo-500'}`}>
+                            {progress === 100 ? 'COMPLETED' : `${masteredCount}/${totalCount} MASTERED`}
+                          </span>
+                          <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button 
+                              onClick={(e) => { e.stopPropagation(); startRename(deck); }}
+                              className="text-slate-300 hover:text-indigo-600 transition-all p-1"
+                            >
+                              <i className="fa-solid fa-pen text-xs"></i>
+                            </button>
+                            <button 
+                              onClick={(e) => { e.stopPropagation(); setDeletingDeckId(deck.id); }}
+                              className="text-slate-300 hover:text-red-500 transition-all p-1"
+                            >
+                              <i className="fa-solid fa-trash-can text-xs"></i>
+                            </button>
+                          </div>
                         </div>
+                        <h3 className="text-xl font-bold text-slate-800 mb-3 line-clamp-2 leading-tight">
+                          {deck.title}
+                        </h3>
+                        <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden mb-4">
+                          <div 
+                            className={`h-full transition-all duration-500 ${progress === 100 ? 'bg-green-500' : 'bg-indigo-500'}`}
+                            style={{ width: `${progress}%` }}
+                          />
+                        </div>
+                        <p className="text-xs text-slate-400">
+                          Created {new Date(deck.createdAt).toLocaleDateString()}
+                        </p>
                       </div>
-                      <h3 className="text-xl font-bold text-slate-800 mb-2 line-clamp-2 leading-tight">
-                        {deck.title}
-                      </h3>
-                      <p className="text-sm text-slate-400">
-                        Created {new Date(deck.createdAt).toLocaleDateString()}
-                      </p>
+                      <div className="flex border-t border-slate-100">
+                        {masteredCount < totalCount && (
+                          <button 
+                            onClick={() => startReview(deck, 'undone')}
+                            className="flex-1 py-3.5 bg-slate-50 hover:bg-indigo-50 hover:text-indigo-600 transition-colors font-bold flex items-center justify-center gap-2 text-slate-600 border-r border-slate-100 text-sm"
+                          >
+                            Learn In Progress
+                          </button>
+                        )}
+                        <button 
+                          onClick={() => startReview(deck, 'all')}
+                          className={`flex-1 py-3.5 transition-colors font-bold flex items-center justify-center gap-2 text-sm ${masteredCount === totalCount ? 'bg-indigo-600 text-white hover:bg-indigo-700' : 'bg-slate-50 hover:bg-slate-100 text-slate-700'}`}
+                        >
+                          Review All
+                        </button>
+                      </div>
                     </div>
-                    <div className="flex border-t border-slate-100">
-                      <button 
-                        onClick={() => startReview(deck, true)}
-                        className="flex-1 py-4 bg-slate-50 hover:bg-indigo-50 hover:text-indigo-600 transition-colors font-bold flex items-center justify-center gap-2 text-slate-600"
-                        title="Shuffle and start study"
-                      >
-                        <i className="fa-solid fa-shuffle text-xs"></i>
-                        Shuffle
-                      </button>
-                      <button 
-                        onClick={() => startReview(deck)}
-                        className="flex-1 py-4 bg-slate-50 group-hover:bg-indigo-600 group-hover:text-white transition-colors border-l border-slate-100 font-bold flex items-center justify-center gap-2"
-                      >
-                        <i className="fa-solid fa-play text-xs"></i>
-                        Study
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -418,7 +440,7 @@ const App: React.FC = () => {
       {/* Delete Confirmation Modal */}
       {deletingDeckId && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[120] flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-sm overflow-hidden animate-in fade-in zoom-in-95 duration-200">
             <div className="p-8 text-center">
               <div className="w-16 h-16 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
                 <i className="fa-solid fa-trash-can text-2xl"></i>

@@ -5,6 +5,7 @@ export interface Flashcard {
   definition: string;
   context?: string;
   category?: string;
+  isDone?: boolean;
 }
 
 export interface Deck {
