@@ -1,0 +1,5 @@
+{
+  "name": "SmartFlash AI",
+  "description": "An intelligent flashcard generator that transforms raw text, notes, or lists into interactive study decks using the power of Gemini AI.",
+  "requestFramePermissions": []
+}
