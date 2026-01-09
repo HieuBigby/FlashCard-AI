@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { AppView, Flashcard, Deck } from './types';
 import { parseRawTextToFlashcards } from './services/geminiService';
 import CardDisplay from './components/CardDisplay';
+import DeckEditor from './components/DeckEditor';
 
 const App: React.FC = () => {
   const [view, setView] = useState<AppView>(AppView.DASHBOARD);
@@ -84,6 +85,48 @@ const App: React.FC = () => {
     }));
   };
 
+  const updateCard = (cardId: string, updatedCard: Partial<Flashcard>) => {
+    setSavedDecks(prev => prev.map(deck => {
+      if (deck.id === currentDeckId) {
+        return {
+          ...deck,
+          cards: deck.cards.map(card => 
+            card.id === cardId ? { ...card, ...updatedCard } : card
+          )
+        };
+      }
+      return deck;
+    }));
+  };
+
+  const deleteCard = (cardId: string) => {
+    setSavedDecks(prev => prev.map(deck => {
+      if (deck.id === currentDeckId) {
+        return {
+          ...deck,
+          cards: deck.cards.filter(card => card.id !== cardId)
+        };
+      }
+      return deck;
+    }));
+    // Reset index if needed
+    if (currentIndex >= filteredCards.length - 1 && currentIndex > 0) {
+      setCurrentIndex(prev => prev - 1);
+    }
+  };
+
+  const addCard = (newCard: Flashcard) => {
+    setSavedDecks(prev => prev.map(deck => {
+      if (deck.id === currentDeckId) {
+        return {
+          ...deck,
+          cards: [...deck.cards, newCard]
+        };
+      }
+      return deck;
+    }));
+  };
+
   const handleGenerate = async () => {
     if (!rawText.trim()) return;
 
@@ -143,6 +186,11 @@ const App: React.FC = () => {
     setCurrentIndex(0);
     setReviewFilter(filter);
     setView(AppView.REVIEW);
+  };
+
+  const startEditDeck = (deck: Deck) => {
+    setCurrentDeckId(deck.id);
+    setView(AppView.EDIT_DECK);
   };
 
   return (
@@ -255,16 +303,24 @@ const App: React.FC = () => {
                     onClick={() => { setReviewFilter('all'); setCurrentIndex(0); }}
                     className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${reviewFilter === 'all' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}
                   >
-                    All Cards
+                    All
                   </button>
                   <button 
                     onClick={() => { setReviewFilter('undone'); setCurrentIndex(0); }}
                     className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${reviewFilter === 'undone' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}
                   >
-                    In Progress
+                    Undone
                   </button>
                 </div>
                 
+                <button 
+                  onClick={() => setView(AppView.EDIT_DECK)}
+                  className="flex items-center gap-2 px-3 py-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
+                >
+                  <i className="fa-solid fa-gear"></i>
+                  <span className="text-xs font-semibold">Manage Cards</span>
+                </button>
+
                 <button 
                   onClick={handleShuffle}
                   className="flex items-center gap-2 px-3 py-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
@@ -302,6 +358,18 @@ const App: React.FC = () => {
               </div>
             )}
           </div>
+        )}
+
+        {/* EDIT DECK VIEW */}
+        {view === AppView.EDIT_DECK && currentDeck && (
+          <DeckEditor 
+            deck={currentDeck}
+            onBack={() => setView(AppView.DASHBOARD)}
+            onUpdateCard={updateCard}
+            onDeleteCard={deleteCard}
+            onAddCard={addCard}
+            onStartReview={() => setView(AppView.REVIEW)}
+          />
         )}
 
         {/* DASHBOARD VIEW */}
@@ -352,19 +420,21 @@ const App: React.FC = () => {
                           <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                             <button 
                               onClick={(e) => { e.stopPropagation(); startRename(deck); }}
-                              className="text-slate-300 hover:text-indigo-600 transition-all p-1"
+                              className="text-slate-300 hover:text-slate-600 transition-all p-1"
+                              title="Rename"
                             >
                               <i className="fa-solid fa-pen text-xs"></i>
                             </button>
                             <button 
                               onClick={(e) => { e.stopPropagation(); setDeletingDeckId(deck.id); }}
                               className="text-slate-300 hover:text-red-500 transition-all p-1"
+                              title="Delete"
                             >
                               <i className="fa-solid fa-trash-can text-xs"></i>
                             </button>
                           </div>
                         </div>
-                        <h3 className="text-xl font-bold text-slate-800 mb-3 line-clamp-2 leading-tight">
+                        <h3 className="text-xl font-bold text-slate-800 mb-3 line-clamp-2 leading-tight cursor-pointer" onClick={() => startReview(deck)}>
                           {deck.title}
                         </h3>
                         <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden mb-4">
@@ -378,19 +448,17 @@ const App: React.FC = () => {
                         </p>
                       </div>
                       <div className="flex border-t border-slate-100">
-                        {masteredCount < totalCount && (
-                          <button 
-                            onClick={() => startReview(deck, 'undone')}
-                            className="flex-1 py-3.5 bg-slate-50 hover:bg-indigo-50 hover:text-indigo-600 transition-colors font-bold flex items-center justify-center gap-2 text-slate-600 border-r border-slate-100 text-sm"
-                          >
-                            Learn In Progress
-                          </button>
-                        )}
                         <button 
-                          onClick={() => startReview(deck, 'all')}
-                          className={`flex-1 py-3.5 transition-colors font-bold flex items-center justify-center gap-2 text-sm ${masteredCount === totalCount ? 'bg-indigo-600 text-white hover:bg-indigo-700' : 'bg-slate-50 hover:bg-slate-100 text-slate-700'}`}
+                          onClick={() => startReview(deck, 'undone')}
+                          className="flex-1 py-3.5 bg-slate-50 hover:bg-indigo-50 hover:text-indigo-600 transition-colors font-bold flex items-center justify-center gap-2 text-slate-600 border-r border-slate-100 text-sm"
                         >
-                          Review All
+                          Study
+                        </button>
+                        <button 
+                          onClick={() => startEditDeck(deck)}
+                          className="flex-1 py-3.5 bg-slate-50 hover:bg-slate-100 text-slate-700 transition-colors font-bold flex items-center justify-center gap-2 text-sm"
+                        >
+                          Manage
                         </button>
                       </div>
                     </div>

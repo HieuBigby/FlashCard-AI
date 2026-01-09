@@ -18,5 +18,6 @@ export interface Deck {
 export enum AppView {
   CREATE = 'create',
   REVIEW = 'review',
-  DASHBOARD = 'dashboard'
+  DASHBOARD = 'dashboard',
+  EDIT_DECK = 'edit_deck'
 }
